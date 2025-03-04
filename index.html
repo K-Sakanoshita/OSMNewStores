@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,13 +8,33 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; }
-        #map { height: 400px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-        th { background-color: #f4f4f4; }
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        #map {
+            height: 400px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f4f4f4;
+        }
     </style>
 </head>
+
 <body>
 
     <h2>都道府県別 新店舗マップ</h2>
@@ -73,7 +94,11 @@
 
     <table id="storeTable">
         <thead>
-            <tr><th>店名</th><th>更新日</th></tr>
+            <tr>
+                <th>店名</th>
+                <th>更新者</th>
+                <th>更新日</th>
+            </tr>
         </thead>
         <tbody></tbody>
     </table>
@@ -103,32 +128,38 @@
             markers.clearLayers();
             const selectedPrefecture = document.getElementById("prefecture").value;
             const tableBody = document.querySelector("#storeTable tbody");
-            tableBody.innerHTML = ""; 
+            tableBody.innerHTML = "";
 
             getPrefectureBounds(selectedPrefecture).then(bounds => {
                 if (!bounds) return alert("バウンディングボックス取得失敗");
 
                 map.fitBounds(bounds);
+                const agoDate = getOneMonthAgoDate()    // 一ヶ月前の日付を取得
                 const query = `
                     [out:json][timeout:25];
-                    node["shop"](newer:"2024-03-01T00:00:00Z")(${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]});
+                    node["shop"](newer:"${agoDate}T00:00:00Z")(${bounds[0][0]},${bounds[0][1]},${bounds[1][0]},${bounds[1][1]});
                     out meta;
                 `;
 
                 fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`)
                     .then(response => response.json())
                     .then(data => {
-                        stores = data.elements.map(el => ({
-                            name: el.tags.name || "不明な店舗",
-                            timestamp: el.timestamp ? new Date(el.timestamp) : null,
-                            lat: el.lat, lon: el.lon
-                        })).sort((a, b) => (a.timestamp ? a.timestamp - b.timestamp : 1));
+                        stores = data.elements.map(el => {
+                            const marker = L.marker([el.lat, el.lon])
+                                .bindPopup(`<b>${el.tags.name || "不明な店舗"}</b>`)
+                                .addTo(markers);
+
+                            return {
+                                name: el.tags.name || "不明な店舗",
+                                timestamp: el.timestamp ? new Date(el.timestamp) : null,
+                                lat: el.lat, lon: el.lon,
+                                user: el.user,
+                                marker: marker // マーカーを保存
+                            };
+                        }).sort((a, b) => (a.timestamp ? a.timestamp - b.timestamp : 1));
 
                         stores.forEach(store => {
-                            if (store.lat && store.lon) {
-                                L.marker([store.lat, store.lon]).bindPopup(`<b>${store.name}</b>`).addTo(markers);
-                            }
-                            tableBody.innerHTML += `<tr><td>${store.name}</td><td>${store.timestamp ? store.timestamp.toLocaleDateString() : "不明"}</td></tr>`;
+                            tableBody.innerHTML += `<tr><td>${store.name}</td><td>${store.user}</td><td>${store.timestamp ? store.timestamp.toLocaleDateString() : "不明"}</td></tr>`;
                         });
 
                         startMapAnimation();
@@ -139,12 +170,38 @@
         function startMapAnimation() {
             let i = 0;
             const interval = setInterval(() => {
-                if (i >= stores.length) return clearInterval(interval);
-                map.flyTo([stores[i].lat, stores[i].lon], 14);
+                if (i >= stores.length) {
+                    clearInterval(interval);
+                    return;
+                }
+
+                const store = stores[i];
+                map.flyTo([store.lat, store.lon], 14);
+
+                // ポップアップを開く
+                if (store.marker) {
+                    store.marker.openPopup();
+                }
+
                 i++;
             }, 1000);
         }
+
+
+        function getOneMonthAgoDate() {
+            const now = new Date();
+            now.setMonth(now.getMonth() - 1); // 1ヶ月前にする
+
+            // 年月日をYYYY-MM-DD形式に整形
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0'); // 月を2桁にする
+            const day = String(now.getDate()).padStart(2, '0'); // 日を2桁にする
+
+            return `${year}-${month}-${day}`;
+        }
+
     </script>
 
 </body>
+
 </html>
